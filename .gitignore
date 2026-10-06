@@ -1,0 +1,17 @@
+*.iml
+.idea/
+.gradle/
+.kotlin/
+**/build/
+**/.cxx/
+local.properties
+signing-keys/
+*.jks
+*.keystore
+.env*
+*.gguf
+*.mnn.weight
+embeddings_*.bin
+release-assets/
+native-work/
+PROGRESS.md
