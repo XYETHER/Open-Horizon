@@ -1,9 +1,9 @@
-# Building and signing
+# Build Open Horizon
 
-See README for the Android toolchain. Debug builds use your local Android development key. Public releases use package `com.xyether.horizon.mnn`; debug builds use `.debug` and store data separately.
+JDK21, Android SDK37, NDK29.0.14206865, CMake3.22.1. Set ANDROID_HOME or local.properties. Run ./gradlew :app:assembleDebug (gradlew.bat on Windows). ARM64 only, Android12+.
 
-For a signed release set `HORIZON_KEYSTORE` (absolute private keystore path), `HORIZON_STORE_PASSWORD`, `HORIZON_KEY_ALIAS`, and `HORIZON_KEY_PASSWORD`, then run `./gradlew :app:assembleRelease`. Without signing environment variables the release output is unsigned. Never commit keys or passwords. Keep and back up the same release key for every update.
+CMake downloads IFM llama.cpp commit42adf019f76013dac873b5b43950d54d5ab27216 and verifies archive SHA256 c58cab48ce95510c65ed7f7abe20a3c70c5a0874908dd48268daa552d348aabb. Network is needed for uncached native source and Gradle dependencies. CPU is the supported/default backend; experimental Vulkan is disabled.
 
-The included native runtime is built from MNN commit `024a946b0b8fcf87c8a418229fadd4cd7858ffba`. See `scripts/rebuild-mnn.ps1` for Android CPU/ARM82/OpenCL/KleidiAI/low-memory flags. Rebuilding requires Git, Android SDK/NDK, CMake and upstream source access. The script writes only beneath your clone and replaces the included ARM64 library after a successful build. Existing library hashes/provenance remain in the SDK directory; update provenance if you rebuild or change dependencies.
+For release signing set HORIZON_KEYSTORE, HORIZON_STORE_PASSWORD, HORIZON_KEY_ALIAS and HORIZON_KEY_PASSWORD, then run :app:assembleRelease. Without those variables, output is unsigned. Never commit keys/passwords. Public package com.xyether.horizon.mnn is retained despite engine change to preserve upgrade compatibility. Continue using the same release key. Debug uses .debug.
 
-Focused release checks and their results are recorded in `docs/VALIDATION.md`. Historical device measurements are not a promise of model quality or performance on other devices. Do not run connected Android Gradle tests against a phone containing data: the runner can uninstall its target.
+Models download separately and are not bundled. The GGUF release retains existing workspace paths; old MNN models are not converted, loaded or automatically deleted. Download K2Q5 separately. No phone-data clearing or connected Gradle tests on real saved devices.

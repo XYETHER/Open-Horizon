@@ -21,7 +21,7 @@ class LocalSpeedBenchmark {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue("Explicit benchmark invocation only", args.getString("horizon_benchmark") == "1")
         val app = InstrumentationRegistry.getInstrumentation().targetContext
-        val model = File(app.noBackupFilesDir, "OpenHorizon/models/k2-horizon-09b.gguf")
+        val model = File(app.noBackupFilesDir, "HorizonAgent/models/k2-horizon-09b.gguf")
         assertTrue("Installed K2 0.9B required", model.isFile)
         assertEquals(887487872L, model.length())
         val threads = args.getString("threads", "2,3,4")!!.split(',').map { it.toInt() }

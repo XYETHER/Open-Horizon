@@ -1,7 +1,5 @@
-# K2 Horizon 0.9B MNN
+# Only supported model
 
-Default bundle: XYETHER/K2-Horizon-0.9B-MNN, pinned revision d0c9d33caf992e399ff934b0d535933ce9d6bf9e. Six downloaded runtime files total1,241,023,014bytes, INT8 weights/BF16 embeddings. Individual sizes/SHA256 are in LocalModelCatalog.kt. Original HF tokenizer is included in app assets; both input encoding and token-ID output decoding use K2Tokenizer rather than stock MNN text decoding.
+IFM/K2-Horizon-0.9B-GGUF revision7833762821bbeeaf6f0e7519af8b0599b7056807; file K2-Horizon-1B-Q5_K_M.gguf (publisher uses1B in the0.9B filename).773,482,880bytes, SHA256 a2efdbbd55f8f6e2be983dcf570f406f0e4703d7027a4019b2388e686865e7fd. Apache-2.0. Weights are not included in source/APK. Pinned IFM native runtime provides K2 architecture/tokenizer/prompt support.
 
-Original checkpoint: IFM/K2-Horizon-0.9B, revision76db896cfa459b82c71998a7741e30b54b37ec7f. Converted using MNN3.6.1 exporter commit d407447ed56c4121a11ccbd266dc184ca1ead0c2 with explicit K2 architecture mapping. Original tokenizer and model are Apache-2.0. Weights are downloaded separately; no weights are included in this GitHub repository/APK.
-
-Historical S24 Ultra short128-token CPU sample:33.60tok/s; GPU33.55tok/s but arithmetic differed, so CPU remains recommended. These are short-prompt observations, not sustained/full-context measurements. Tool reliability and complex HTML generation remain limited.
+Q5_K_M weight quantization and KV cache quantization are separate. Q8_0 KV default; Q5_0 optional. Recommended first context4K; trained maximum131072. No new Q5 speed/quality benchmark is claimed. Small-model tool and advanced coding reliability remain limited.

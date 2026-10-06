@@ -28,16 +28,10 @@ object LocalNative {
         gpuLayers: Int = 0,
         fastCpu: Boolean = false,
         reuseSession: Boolean = false,
-        compute: String = "cpu",
-        precision: String = "low",
-        memory: String = "low",
-        attentionMode: Int = 10,
-        preparedTokens: IntArray? = null,
     ): IntArray
 
     @Keep
     interface Callback {
         fun onToken(bytes: ByteArray): Boolean
-        fun onTokenId(id: Int): Boolean = error("Token-ID callback requires an original tokenizer")
     }
 }

@@ -104,7 +104,6 @@
             android:name=".agent.NotificationActionReceiver"
             android:exported="false" />
         <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:foregroundServiceType="dataSync" tools:node="merge" />
-        <uses-native-library android:name="libOpenCL.so" android:required="false" />
     </application>
 
 </manifest>

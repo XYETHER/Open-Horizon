@@ -18,7 +18,6 @@ Validation: AgentFolderBoundaryTest, bounded legacy UnboundedFileFsTest, LocalBr
 
 Public research HTTP now rejects non-public DNS results and non-public connection addresses, including redirects. This prevents web tools from reaching phone-local and LAN services; it does not turn public website access into an offline mode.
 
-
 ## Verified public-web pre-connection boundary (0.7.2)
 An actual Android regression found that numeric IP URLs bypass OkHttp's custom DNS. The fixed client preflights host addresses, including literals, before connecting. Built-in redirects are disabled; a bounded manual loop validates each destination and strips cross-origin credentials. Actual phone localhost blocking passed, alongside JVM zero-request localhost and public-to-private redirect regressions. Application tool containment is not a separate OS process or VM.
 

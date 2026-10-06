@@ -39,23 +39,22 @@ class LocalModelManager(private val context: Context) {
     fun storageBytes() = store.bytesUsed()
     fun storageInfo(id: String) = store.info(id)
     private val custom = CustomModelRegistry(root)
-    private val _models = MutableStateFlow(LocalModelCatalog.mnnModels)
+    private val _models = MutableStateFlow(LocalModelCatalog.models)
     val models: kotlinx.coroutines.flow.StateFlow<List<LocalModelSpec>> = _models.asStateFlow()
     val catalogError get() = custom.loadError
     fun find(id: String): LocalModelSpec? = models.value.firstOrNull { it.id == id } ?: LocalModelCatalog.projectors.firstOrNull { it.id == id }
     private val store = LocalModelStore(root, ::find)
-    val mnnSettings = MnnSettings(context)
-    private val k2Tokenizer by lazy { K2Tokenizer(context.assets.open("k2/tokenizer.json").bufferedReader().use { it.readText() }) }
     private val resolver = CustomModelResolver()
 
     suspend fun resolveLink(link: String) = withContext(Dispatchers.IO) { resolver.resolve(link) }
     suspend fun inspectCustom(model: LocalModelSpec) = withContext(Dispatchers.IO) { resolver.inspect(model) }
     suspend fun downloadCustom(model: LocalModelSpec) = withContext(Dispatchers.IO) {
+        require(model.id == "k2-horizon-09b-q5" && model == LocalModelCatalog.models.single()) { "Only the built-in K2 Q5 model is supported" }
         lifecycle.withLock {
             // Once installed, never replace its spec with metadata from a later URL probe.
             if (find(model.id)?.let(store::installed) != true) {
                 custom.add(model)
-                _models.value = LocalModelCatalog.mnnModels
+                _models.value = LocalModelCatalog.models
             }
             download(model.id)
         }
@@ -86,7 +85,7 @@ class LocalModelManager(private val context: Context) {
                 (models.value + LocalModelCatalog.projectors).forEach { model ->
                     runCatching {
                         if (store.installed(model)) store.clearRequest(model.id)
-                        else if (model.artifacts.isEmpty() && store.file(model.id).exists()) setStatus(model.id, "Saved model kept. Delete explicitly to replace this model version.")
+                        else if (store.file(model.id).exists()) setStatus(model.id, "Saved model kept. Delete explicitly to replace this model version.")
                         else if (store.pending(model.id)) download(model.id)
                     }.onFailure { setStatus(model.id, it.message ?: "Storage cleanup failed") }
                 }
@@ -124,7 +123,6 @@ class LocalModelManager(private val context: Context) {
         lifecycle.withLock {
             val model = requireNotNull(find(id))
             limits.validate()
-            require(limits.kvCache==KvCacheQuantization.Q8_0) { "MNN Q5 cache is unavailable; choose cache in MNN performance settings." }
             require(limits.context <= model.maxContext) { "Context exceeds the model training limit." }
             require(!limits.visionEnabled || model.projectorId?.let { store.installed(requireNotNull(find(it))) } == true) { "Download the vision projector before enabling Vision." }
             require(device().canAttempt(model, limits.context)) { "Unsupported architecture or model context." }
@@ -159,7 +157,7 @@ class LocalModelManager(private val context: Context) {
                 if (store.installed(model)) { publishInstalled(); return@withLock }
                 val settings = limits(id)
                 check(device().canAttempt(model, settings.context)) { "Unsupported architecture or model context." }
-                check(model.artifacts.isNotEmpty() || !store.file(id).exists()) { "Saved model kept. Delete it explicitly before replacing it." }
+                check(!store.file(id).exists()) { "Saved model kept. Delete it explicitly before replacing it." }
                 val savedBytes = store.preparePartial(model)
                 check(device().freeStorage >= model.bytes - savedBytes + 256L * 1024 * 1024) { "Not enough free storage to finish this download. Saved bytes kept." }
                 synchronized(gate) {
@@ -170,17 +168,7 @@ class LocalModelManager(private val context: Context) {
                 synchronized(gate) { activeId = id }
                 try {
                     var lastUpdate = 0L
-                    if(model.artifacts.isNotEmpty()) {
-                        var completed=0L
-                        for((partStore,part) in store.bundleParts(model)) {
-                            if(!partStore.installed(part)) ResumableModelDownloader(client,partStore).download(part,{cancelled.get() || stopped()},{call -> synchronized(gate){downloadCall=call}}) { count ->
-                                setStatus(id,"Downloading ${part.filename} · saved automatically")
-                                kotlinx.coroutines.runBlocking { progress(completed+count,model.bytes) }
-                            }
-                            completed+=part.bytes
-                        }
-                        store.clearRequest(id)
-                    } else ResumableModelDownloader(client, store).download(model, { cancelled.get() || stopped() }, { call ->
+                    ResumableModelDownloader(client, store).download(model, { cancelled.get() || stopped() }, { call ->
                         synchronized(gate) {
                             if (call != null) check(id !in blocked && !stopped() && !cancelled.get()) { "Download paused." }
                             downloadCall = call
@@ -244,7 +232,7 @@ class LocalModelManager(private val context: Context) {
                     store.remove(id)
                     if (find(id)?.custom == true) {
                         custom.remove(id)
-                        _models.value = LocalModelCatalog.mnnModels
+                        _models.value = LocalModelCatalog.models
                     }
                     publishInstalled()
                     setStatus(id, "Removed")
@@ -282,7 +270,6 @@ class LocalModelManager(private val context: Context) {
             _running.value = id
         }
         try {
-            val preparedTokens = if(id == "k2-horizon-09b-mnn") withContext(Dispatchers.IO) { k2Tokenizer.encode(K2MnnPrompt.render(roles,contents,reasoningEffort)) } else null
             coroutineScope {
                 val bytes = Channel<ByteArray>(32)
                 var result: IntArray? = null
@@ -290,12 +277,11 @@ class LocalModelManager(private val context: Context) {
                     try {
                         result = LocalNative.generate(handle, store.file(id).absolutePath.toByteArray(Charsets.UTF_8), roles, contents,
                             limits.context, limits.input, minOf(limits.output, outputCap.coerceAtLeast(1)),
-                            if (mnnSettings.mode.value == MnnCompute.GPU) 4 else minOf(limits.threads, device().cores.coerceAtLeast(1)), limits.kvCache.name, reasoningEffort, projectorPath.toByteArray(Charsets.UTF_8), images, object : LocalNative.Callback {
-                                override fun onTokenId(id: Int): Boolean = onToken(k2Tokenizer.decode(id))
+                            minOf(limits.threads, device().cores.coerceAtLeast(1)), limits.kvCache.name, reasoningEffort, projectorPath.toByteArray(Charsets.UTF_8), images, object : LocalNative.Callback {
                                 override fun onToken(data: ByteArray): Boolean = kotlinx.coroutines.runBlocking {
                                     try { bytes.send(data); true } catch (_: CancellationException) { false }
                                 }
-                            }, reuseSession=true, compute=mnnSettings.mode.value.alias, precision=mnnSettings.precision.value, memory=mnnSettings.memory.value, attentionMode=mnnSettings.attention.value, preparedTokens=preparedTokens)
+                            }, reuseSession=id=="k2-horizon-09b-q5")
                     } finally { bytes.close() }
                 }
                 try {

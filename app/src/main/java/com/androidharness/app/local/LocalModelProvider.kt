@@ -25,8 +25,8 @@ class LocalModelProvider(private val manager: LocalModelManager, private val res
             val hasImages = messages.any { it.images.isNotEmpty() || it.imageData.isNotEmpty() }
             check(!hasImages || manager.visionReady(id)) { "Images need Qwen3.5 with Vision enabled and its projector downloaded. Open Local models > Qwen3.5 > Vision." }
             val limits = manager.limits(id)
-            val k2Xml = id == "k2-horizon-09b" || id == "k2-horizon-37b" || id == "k2-horizon-09b-mnn"
-            val miniCpm = id == "sharp-minicpm5-2b" || id == "minicpm5-2b-mnn"
+            val k2Xml = id == "k2-horizon-09b-q5"
+            val miniCpm = id == "sharp-minicpm5-2b"
             val qwen = id == "qwen35-2b"
             val profileGuidance = if ((miniCpm || qwen) && options.thinking.k2ReasoningEffort() == "high") "\nCheck alternatives and verify your reasoning carefully." else ""
             val history = LocalAgentProtocol.history(systemPrompt + profileGuidance, messages, tools, limits.input, miniCpm, qwen, k2Xml)

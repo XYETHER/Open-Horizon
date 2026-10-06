@@ -81,7 +81,7 @@ class UpdateManager(
     suspend fun check(manual: Boolean = false): Unit = withContext(Dispatchers.IO) {
         // This independent prototype must never install upstream APKs.
         if (context.packageName.startsWith("com.xyether.horizon")) {
-            _step.value = if (manual) Step.Error("Download updates from this projectâ€™s GitHub Releases.") else Step.Idle
+            _step.value = if (manual) Step.Error("Download updates from this project’s GitHub Releases.") else Step.Idle
             return@withContext
         }
         manualCheck = manual || manualCheck

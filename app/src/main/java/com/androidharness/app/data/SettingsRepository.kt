@@ -87,7 +87,7 @@ data class AppSettings(
     val cavemanWenyan: Boolean = false,
 ) {
     companion object {
-        const val DEFAULT_ACTIVE_PROVIDER = "local-model:k2-horizon-09b-mnn"
+        const val DEFAULT_ACTIVE_PROVIDER = "local-model:k2-horizon-09b-q5"
         const val DEFAULT_MAX_CONTEXT = 1_000_000
         const val DEFAULT_MAX_OUTPUT = 32_768
         const val DEFAULT_MAX_ITERATIONS = 0 // unlimited
@@ -153,7 +153,7 @@ class SettingsRepository(private val context: Context) {
                 ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.SYSTEM,
             dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: false,
-            activeProviderId = prefs[Keys.ACTIVE_PROVIDER]?.takeIf { com.androidharness.app.local.LocalModelCatalog.isLocal(it) } ?: AppSettings.DEFAULT_ACTIVE_PROVIDER,
+            activeProviderId = AppSettings.DEFAULT_ACTIVE_PROVIDER,
             thinkingLevel = prefs[Keys.THINKING_LEVEL]
                 ?.let { runCatching { ThinkingLevel.valueOf(it) }.getOrNull() }
                 ?: ThinkingLevel.OFF,

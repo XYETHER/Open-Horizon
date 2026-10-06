@@ -21,8 +21,8 @@ android {
         applicationId = "com.xyether.horizon.mnn"
         minSdk = 31
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.2.0"
+        versionCode = 21
+        versionName = "0.2.1"
         ndk { abiFilters += listOf("arm64-v8a") }
         externalNativeBuild {
             cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" }
@@ -32,7 +32,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    sourceSets.getByName("main").jniLibs.srcDir("src/main/cpp/mnn-sdk")
     packaging { jniLibs { useLegacyPackaging = true } }
 
     signingConfigs {
@@ -82,7 +81,6 @@ android {
         aidl = true
     }
 
-    sourceSets.getByName("main").jniLibs.srcDir("src/main/cpp/mnn-sdk")
     packaging {
         resources {
             excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/NOTICE", "META-INF/NOTICE.txt")

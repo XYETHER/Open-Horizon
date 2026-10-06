@@ -857,7 +857,6 @@ fun ChatScreen(
                 canUndo = state.turnsWithCheckpoints.isNotEmpty(),
                 onOpenDrawer = onOpenDrawer,
                 onPickModel = {
-                    viewModel.container.pendingSettingsScroll.value = "local-models"
                     onOpenSettings()
                 },
                 onOpenTerminal = onOpenTerminal,

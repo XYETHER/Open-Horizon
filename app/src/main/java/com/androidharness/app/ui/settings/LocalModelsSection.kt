@@ -32,7 +32,6 @@ internal fun LocalModelsSection(container: AppContainer) {
     val installed by manager.installed.collectAsStateWithLifecycle()
     val statuses by manager.status.collectAsStateWithLifecycle()
     val running by manager.running.collectAsStateWithLifecycle()
-    val compute by manager.mnnSettings.mode.collectAsStateWithLifecycle()
     val work by remember { WorkManager.getInstance(container.appContext).getWorkInfosByTagFlow("local-model-download") }
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val scope = rememberCoroutineScope()
@@ -68,15 +67,15 @@ internal fun LocalModelsSection(container: AppContainer) {
         delay(3000)
     } }
     val retained = installed + storageInfos.filterValues { it.totalBytes > 0 }.keys + work.filter { !it.state.isFinished }.flatMap { it.tags }
-        .filter { it.startsWith("model:") }.map { it.removePrefix("model:") } + setOf("k2-horizon-37b", "k2-horizon-09b", "sharp-minicpm5-2b", "qwen35-2b")
-    val models = catalog.filterNot { it.custom }
+        .filter { it.startsWith("model:") }.map { it.removePrefix("model:") } + setOf("k2-horizon-09b-q5")
+    val models = catalog
     val hiddenCount = if (showAll) 0 else catalog.size - models.size
     SettingsPanel(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("${size(device.totalRam)} RAM · ${size(device.availableRam)} available", style = MaterialTheme.typography.titleSmall)
             Text("Model storage · ${size(storageBytes)} used · ${size(device.freeStorage)} free", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("HorizonMNN folders keep models and files across app updates. Uninstalling or clearing app data removes them.",
+            Text("App-owned folders keep models and files across app updates. Uninstalling or clearing app data removes them.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { showStoragePaths = !showStoragePaths }) { Text(if (showStoragePaths) "Hide storage folders" else "Show storage folders") }
             if (showStoragePaths) {
@@ -86,9 +85,12 @@ internal fun LocalModelsSection(container: AppContainer) {
         }
     }
     message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-    MnnControls(manager.mnnSettings)
+    if (models.none { it.id == "k2-horizon-37b" }) {
+        
+        manager.catalogError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    }
     models.forEach { model ->
-        val isK2 = model.format == "MNN_BUNDLE" || model.id in setOf("k2-horizon-37b", "k2-horizon-09b", "sharp-minicpm5-2b", "qwen35-2b")
+        val isK2 = model.id == "k2-horizon-09b-q5"
         val hasModel = model.id in installed
         val downloading = work.any { info -> !info.state.isFinished && info.tags.contains("model:${model.id}") }
         val failed = work.firstOrNull { it.tags.contains("model:${model.id}") && it.state == WorkInfo.State.FAILED }
@@ -98,12 +100,12 @@ internal fun LocalModelsSection(container: AppContainer) {
         val fit = device.canLoad(model, context, kvCache, modelLimits[model.id]?.visionEnabled == true)
         val canDownload = device.canAttempt(model, context)
         val stored = storageInfos[model.id] ?: ModelStorageInfo(0, 0, false)
-        val remaining = (model.bytes - stored.totalBytes).coerceAtLeast(0)
-        val savedModel = model.artifacts.isEmpty() && stored.installedBytes > 0
+        val remaining = (model.bytes - stored.partialBytes).coerceAtLeast(0)
+        val savedModel = stored.installedBytes > 0
         SettingsPanel(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(model.title, style = MaterialTheme.typography.titleMedium)
-                Text("${if (model.format == "MNN_BUNDLE") if(model.id == "k2-horizon-09b-mnn") "MNN INT8 weights" else "MNN INT4 weights" else if (model.custom) "Custom GGUF" else if (model.filename.contains("Q5_K_XL", ignoreCase = true)) "UD-Q5_K_XL weights" else if (model.filename.contains("Q6_K_XL", ignoreCase = true)) "Q6_K_XL weights" else if (model.filename.contains("Q6_K", ignoreCase = true)) "Q6_K weights" else if (model.filename.contains("Q5_0", ignoreCase = true)) "Q5_0 weights" else "Q4_K_M weights"} · ${size(model.bytes)}", style = MaterialTheme.typography.labelMedium)
+                Text("${if (model.custom) "Custom GGUF" else if (model.filename.contains("Q5_K_XL", ignoreCase = true)) "UD-Q5_K_XL weights" else if (model.filename.contains("Q6_K_XL", ignoreCase = true)) "Q6_K_XL weights" else if (model.filename.contains("Q6_K", ignoreCase = true)) "Q6_K weights" else if (model.filename.contains("Q5_K_M", ignoreCase = true)) "Q5_K_M weights" else if (model.filename.contains("Q5_0", ignoreCase = true)) "Q5_0 weights" else "Q4_K_M weights"} · ${size(model.bytes)}", style = MaterialTheme.typography.labelMedium)
                 if (!isK2) Text(if (fit) "Fits available RAM · about ${size(model.estimatedMemory(context, kvCache) + 256L * 1024 * 1024)} at $context context"
                     else if (!device.fits(model, context, kvCache)) "Above estimated physical RAM · attempt allowed"
                     else "Low available RAM · attempt allowed",
@@ -119,7 +121,7 @@ internal fun LocalModelsSection(container: AppContainer) {
                                     .onSuccess {
                                         refreshLimits()
                                         device = manager.device()
-                                        message = "Saved ${contextLabel(value.context)} context · MNN cache profile. Applies to the next reply."
+                                        message = "Saved ${contextLabel(value.context)} context · ${cacheLabel(value.kvCache)} KV cache. Applies to the next reply."
                                     }
                                     .onFailure { message = it.message ?: "Could not save inference settings." }
                                 busy = null
@@ -133,7 +135,7 @@ internal fun LocalModelsSection(container: AppContainer) {
                 Text(when {
                     hasModel -> "Installed · ${size(stored.installedBytes)} stored"
                     savedModel -> "Saved model · ${size(stored.installedBytes)} kept; delete explicitly to replace"
-                    stored.totalBytes > 0 -> "${size(stored.totalBytes)} / ${size(model.bytes)} saved · ${size(remaining)} remaining"
+                    stored.partialBytes > 0 -> "${size(stored.partialBytes)} / ${size(model.bytes)} saved · ${size(remaining)} remaining"
                     else -> "Not downloaded"
                 }, style = MaterialTheme.typography.bodySmall)
                 if (!hasModel && device.freeStorage < remaining + 256L * 1024 * 1024) {
@@ -142,11 +144,11 @@ internal fun LocalModelsSection(container: AppContainer) {
                 statuses[model.id]?.let { Text(it, style = MaterialTheme.typography.labelMedium) }
                 if (failed != null && !hasModel && !downloading) Text(failed, color = MaterialTheme.colorScheme.error)
                 if (downloading) {
-                    if (stored.totalBytes > 0) LinearProgressIndicator(progress = { (stored.totalBytes.toDouble() / model.bytes).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    if (stored.partialBytes > 0) LinearProgressIndicator(progress = { (stored.partialBytes.toDouble() / model.bytes).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                     else LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text("Interrupted downloads resume automatically when connected. Pause keeps saved bytes.", style = MaterialTheme.typography.bodySmall)
                 }
-                if (running == model.id) Text("Running on ${compute.label}", color = MaterialTheme.colorScheme.primary)
+                if (running == model.id) Text("Running on CPU", color = MaterialTheme.colorScheme.primary)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (hasModel) {
                         Button(onClick = {
@@ -161,7 +163,7 @@ internal fun LocalModelsSection(container: AppContainer) {
                         OutlinedButton(onClick = { manager.pauseDownload(model.id) }, enabled = busy == null) { Text("Pause") }
                     } else {
                         Button(onClick = { download = model }, enabled = canDownload && !savedModel && busy == null && device.freeStorage >= remaining + 256L * 1024 * 1024) {
-                            Text(if (stored.totalBytes > 0 || stored.paused) "Resume" else "Download")
+                            Text(if (stored.partialBytes > 0 || stored.paused) "Resume" else "Download")
                         }
                         if (isK2) OutlinedButton(onClick = { editing = model }, enabled = busy == null) { Text("Advanced") }
                     }
@@ -176,15 +178,16 @@ internal fun LocalModelsSection(container: AppContainer) {
             }
         }
     }
+    
     Text("Inference stays on device. Web tools use internet.", style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
-    TextButton(onClick = { uri.openUri("https://github.com/alibaba/MNN/tree/024a946b0b8fcf87c8a418229fadd4cd7858ffba") }) { Text("MNN runtime source · Apache 2.0") }
+    TextButton(onClick = { uri.openUri("https://github.com/ifm-ai/llama.cpp/tree/model/K2Horizon") }) { Text("Runtime source · MIT license") }
     download?.let { model ->
-        AlertDialog(onDismissRequest = { download = null }, title = { Text(if ((storageInfos[model.id]?.totalBytes ?: 0) > 0) "Resume ${model.title}?" else "Download ${model.title}?") },
-            text = { Text("${size(storageInfos[model.id]?.totalBytes ?: 0)} already saved. Download ${size((model.bytes - (storageInfos[model.id]?.totalBytes ?: 0)).coerceAtLeast(0))} remaining from ${model.url.substringAfter("https://").substringBefore('/')} using your current connection. License: ${model.license}. " +
-                if (model.artifacts.isNotEmpty()) "Every component is checked against its pinned SHA-256 checksum before installation." else if (model.sha256.isNotEmpty()) "The source SHA-256 checksum is verified before installation."
+        AlertDialog(onDismissRequest = { download = null }, title = { Text(if ((storageInfos[model.id]?.partialBytes ?: 0) > 0) "Resume ${model.title}?" else "Download ${model.title}?") },
+            text = { Text("${size(storageInfos[model.id]?.partialBytes ?: 0)} already saved. Download ${size((model.bytes - (storageInfos[model.id]?.partialBytes ?: 0)).coerceAtLeast(0))} remaining from ${model.url.substringAfter("https://").substringBefore('/')} using your current connection. License: ${model.license}. " +
+                if (model.sha256.isNotEmpty()) "The source SHA-256 checksum is verified before installation."
                 else "File size and GGUF header are checked. This source does not provide a checksum.") },
-            confirmButton = { TextButton(enabled = busy == null && device.canAttempt(model, contexts[model.id] ?: model.defaultContext) && device.freeStorage >= model.bytes - (storageInfos[model.id]?.totalBytes ?: 0) + 256L * 1024 * 1024, onClick = {
+            confirmButton = { TextButton(enabled = busy == null && device.canAttempt(model, contexts[model.id] ?: model.defaultContext) && device.freeStorage >= model.bytes - (storageInfos[model.id]?.partialBytes ?: 0) + 256L * 1024 * 1024, onClick = {
                 busy = model.id
                 scope.launch {
                     runCatching { if (model.custom) manager.downloadCustom(model) else manager.download(model.id) }
@@ -278,9 +281,9 @@ private fun LocalInferenceControls(model: LocalModelSpec, saved: LocalModelLimit
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("KV cache", style = MaterialTheme.typography.labelLarge)
-            listOf(KvCacheQuantization.Q8_0).forEach { choice ->
+            listOf(KvCacheQuantization.Q8_0, KvCacheQuantization.Q5_0).forEach { choice ->
                 FilterChip(selected = draft.kvCache == choice, onClick = { draft = draft.copy(kvCache = choice) },
-                    enabled = enabled, label = { Text("MNN cache controls above") })
+                    enabled = enabled, label = { Text(cacheLabel(choice)) })
             }
         }
         if (model.projectorId != null) {
@@ -293,15 +296,15 @@ private fun LocalInferenceControls(model: LocalModelSpec, saved: LocalModelLimit
             }
             Text("Off uses text only. Turning Vision off keeps the projector; Delete vision removes it. Up to two images per request.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text("MNN uses INT8 CPU cache or FP16 GPU cache. Cache grows with the conversation; context is its upper limit.", style = MaterialTheme.typography.bodySmall,
+        Text("Q8 is the default. Q5 uses less cache memory.", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Estimated RAM ceiling · ${size(model.estimatedMemory(draft.context, draft.kvCache, draft.visionEnabled) + 256L * 1024 * 1024)}",
+        Text("Estimated RAM · ${size(model.estimatedMemory(draft.context, draft.kvCache, draft.visionEnabled) + 256L * 1024 * 1024)}",
             style = MaterialTheme.typography.bodyMedium)
         Text(status, style = MaterialTheme.typography.labelMedium,
             color = if (availableFit) MaterialTheme.colorScheme.primary else if (capacityFit) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
-            Text("Saved: ${contextLabel(saved.context)} · MNN cache",
+            Text("Saved: ${contextLabel(saved.context)} · ${cacheLabel(saved.kvCache)}",
                 modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(onClick = { onApply(draft) }, enabled = enabled && changed && withinModel && device.supported && (!draft.visionEnabled || visionInstalled)) { Text("Apply") }
@@ -316,7 +319,7 @@ private fun LocalLimitsDialog(model: LocalModelSpec, manager: LocalModelManager,
     var saved by remember { mutableStateOf<LocalModelLimits?>(null) }
     LaunchedEffect(model.id) { saved = withContext(Dispatchers.IO) { manager.limits(model.id) } }
     val limits = saved ?: return
-    val advancedOnly = model.id in setOf("k2-horizon-37b", "k2-horizon-09b", "sharp-minicpm5-2b", "qwen35-2b")
+    val advancedOnly = model.id in setOf("k2-horizon-09b-q5")
     var context by remember { mutableStateOf(limits.context.toString()) }
     var input by remember { mutableStateOf(limits.input.toString()) }
     var output by remember { mutableStateOf(limits.output.toString()) }
@@ -331,7 +334,7 @@ private fun LocalLimitsDialog(model: LocalModelSpec, manager: LocalModelManager,
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (advancedOnly) "Advanced inference settings" else "${model.title} limits") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Input includes instructions and chat history. Input + output must fit context. Changes apply to the next reply.")
-            if (advancedOnly) Text("${contextLabel(limits.context)} context · MNN cache. Adjust these in the model card.", style = MaterialTheme.typography.bodySmall)
+            if (advancedOnly) Text("${contextLabel(limits.context)} context · ${cacheLabel(limits.kvCache)} KV cache. Adjust these in the model card.", style = MaterialTheme.typography.bodySmall)
             ((if (advancedOnly) emptyList() else listOf(Triple("Context tokens", context, { v: String -> context = v }))) +
                 listOf(Triple("Input tokens", input, { v: String -> input = v }),
                 Triple("Output tokens", output, { v: String -> output = v }),
@@ -342,14 +345,14 @@ private fun LocalLimitsDialog(model: LocalModelSpec, manager: LocalModelManager,
             if (!advancedOnly) {
                 Text("KV cache", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(KvCacheQuantization.Q8_0).forEach { choice ->
+                    listOf(KvCacheQuantization.Q8_0, KvCacheQuantization.Q5_0).forEach { choice ->
                         FilterChip(selected = kvCache == choice, onClick = { kvCache = choice },
-                            enabled = !saving, label = { Text("MNN cache controls above") })
+                            enabled = !saving, label = { Text(cacheLabel(choice)) })
                     }
                 }
-                Text("CPU cache and GPU FP16 behavior are shown in MNN performance settings. Q5 is unsupported.", style = MaterialTheme.typography.bodySmall)
+                Text("Applies to both keys and values. Q8 is the default; Q5 uses less cache memory. Quality and speed depend on the model.", style = MaterialTheme.typography.bodySmall)
             }
-            Text("Estimated RAM ceiling: ${size(model.estimatedMemory(context.toIntOrNull()?.coerceIn(512, MAX_LOCAL_CONTEXT) ?: 2048, kvCache))}")
+            Text("Estimated RAM: ${size(model.estimatedMemory(context.toIntOrNull()?.coerceIn(512, MAX_LOCAL_CONTEXT) ?: 2048, kvCache))}")
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }, confirmButton = { TextButton(enabled = !saving && contextFits, onClick = {

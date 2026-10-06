@@ -39,10 +39,6 @@ internal fun DeviceUsageStrip(state:ChatUiState,manager:LocalModelManager,onAppl
  var usage by remember {mutableStateOf<DeviceUsage?>(null)};var details by remember {mutableStateOf(false)}
  val scope=rememberCoroutineScope();var saving by remember {mutableStateOf(false)};var error by remember {mutableStateOf<String?>(null)}
  val revision by manager.limitsRevision.collectAsState()
- val compute by manager.mnnSettings.mode.collectAsState()
- val attention by manager.mnnSettings.attention.collectAsState()
- val precision by manager.mnnSettings.precision.collectAsState()
- val cache=if(compute==com.androidharness.app.local.MnnCompute.GPU) "FP16 K + V" else if(attention==10) "INT8 K + V" else if(precision=="low") "FP16 K + V" else "FP32 K + V"
  val limits by produceState<LocalModelLimits?>(null,state.activeProviderId,revision,details) {
   value=withContext(Dispatchers.IO) {state.activeProviderId?.takeIf(LocalModelCatalog::isLocal)?.removePrefix(LocalModelCatalog.PROVIDER_PREFIX)?.let(manager::limits)}
  }
@@ -67,8 +63,6 @@ internal fun DeviceUsageStrip(state:ChatUiState,manager:LocalModelManager,onAppl
   TextButton(onClick={details=false},enabled=!saving) {Text("Close")}
   TextButton(enabled=editable && draft!=null,onClick={scope.launch {saving=true;error=null;val result=onApply(thinking,draft!!.output);saving=false;result.fold(onSuccess={details=false},onFailure={error=it.message})}}) {Text("Apply")}
  }},text={Column(Modifier.heightIn(max=560.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-  Text("MNN · ${compute.label}",style=MaterialTheme.typography.titleSmall)
-  Text("KV cache: $cache. Grows with the conversation up to your context limit.",style=MaterialTheme.typography.bodySmall)
   Text("App RAM: ${u?.let {ram(it.appRam)} ?: "Sampling…"} (PSS, including native model memory)")
   Text("Phone RAM: ${u?.let {ram((it.totalRam-it.availableRam).coerceAtLeast(0)) + " / " + ram(it.totalRam)} ?: "Sampling…"}")
   Text("Available RAM: ${u?.let {ram(it.availableRam)} ?: "—"}")
@@ -86,6 +80,6 @@ internal fun DeviceUsageStrip(state:ChatUiState,manager:LocalModelManager,onAppl
   if(state.busy)Text("Stop the task to change settings.",style=MaterialTheme.typography.bodySmall)
   if(limits==null)Text("Choose a local model first.",style=MaterialTheme.typography.bodySmall)
   error?.let {Text(it,color=MaterialTheme.colorScheme.error)}
-  Text("MNN inference uses ${compute.label}. RAM updates about every 5 seconds; CPU/GPU every second while this screen is visible. RAM Plus is not included in physical RAM totals.",style=MaterialTheme.typography.bodySmall)
+  Text("Model inference uses CPU. RAM updates about every 5 seconds; CPU/GPU every second while this screen is visible. RAM Plus is not included in physical RAM totals.",style=MaterialTheme.typography.bodySmall)
  }})
 }

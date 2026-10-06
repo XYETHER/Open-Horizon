@@ -23,36 +23,21 @@ class LocalModelStore(private val root: File, private val find: (String) -> Loca
     init { check(root.isDirectory || root.mkdirs()) { "Cannot create local model storage." } }
     fun file(id: String): File {
         require(id.matches(Regex("[a-z0-9-]{1,80}")) && find(id) != null) { "Unknown local model." }
-        val model = requireNotNull(find(id))
-        if(model.artifacts.isNotEmpty()) return File(File(root,id),"config.json")
-        model.localFilename?.let { require(it.matches(Regex("[a-zA-Z0-9_.-]+")) && it !in setOf(".","..")); return File(root,it) }
         return File(root, "$id.gguf")
     }
     fun partial(id: String) = File(root, "${file(id).name}.part")
     private fun stateFile(id: String) = File(root, "${file(id).name}.part.json")
-    private fun requestFile(id: String) = File(root, "${id}.download")
-    private fun pausedFile(id: String) = File(root, "${id}.paused")
+    private fun requestFile(id: String) = File(root, "${file(id).name}.download")
+    private fun pausedFile(id: String) = File(root, "${file(id).name}.paused")
     private fun installedIdentity(id: String) = File(root, "${file(id).name}.identity")
     private fun identity(model: LocalModelSpec) = "${model.bytes}:${model.sha256.ifEmpty { model.url }}"
-    internal fun bundleParts(model:LocalModelSpec): List<Pair<LocalModelStore,LocalModelSpec>> = model.artifacts.mapIndexed { index, part ->
-        require(part.filename.matches(Regex("[a-zA-Z0-9_.-]+")) && part.filename !in setOf(".","..") && part.sha256.matches(Regex("[a-f0-9]{64}")))
-        val component=model.copy(id="part-$index",filename=part.filename,bytes=part.bytes,sha256=part.sha256,format="MNN_FILE",localFilename=part.filename,artifacts=emptyList())
-        LocalModelStore(File(root,model.id)) { id -> component.takeIf { it.id==id } } to component
-    }
-    fun installed(model: LocalModelSpec):Boolean {
-        if(model.artifacts.isNotEmpty()) return bundleParts(model).all { (store,part) -> store.installed(part) }
-        return file(model.id).let { target ->
+    fun installed(model: LocalModelSpec) = file(model.id).let { target ->
         target.isFile && target.length() == model.bytes &&
             (!installedIdentity(model.id).exists() || runCatching { installedIdentity(model.id).readText() }.getOrDefault("") == identity(model))
     }
-    }
-    fun info(id: String):ModelStorageInfo {
-        val model=requireNotNull(find(id))
-        if(model.artifacts.isNotEmpty()){val parts=bundleParts(model).map{(store,part)->store.info(part.id)};return ModelStorageInfo(parts.sumOf{it.installedBytes},parts.sumOf{it.partialBytes},pausedFile(id).exists())}
-        return ModelStorageInfo(file(id).takeIf { it.isFile }?.length() ?: 0,
+    fun info(id: String) = ModelStorageInfo(file(id).takeIf { it.isFile }?.length() ?: 0,
         partial(id).takeIf { it.isFile }?.length() ?: 0, pausedFile(id).exists())
-    }
-    fun bytesUsed(): Long = root.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    fun bytesUsed(): Long = root.listFiles().orEmpty().filter { it.isFile }.sumOf { it.length() }
     fun request(id: String) {
         atomicWrite(requestFile(id), "requested")
         removeFile(pausedFile(id))
@@ -62,14 +47,6 @@ class LocalModelStore(private val root: File, private val find: (String) -> Loca
     fun clearPartial(id: String) { removeFile(partial(id)); removeFile(stateFile(id)); removeFile(File(root, stateFile(id).name + ".new")) }
     fun clearRequest(id: String) { listOf(requestFile(id), pausedFile(id)).forEach { removeFile(it); removeFile(File(root, it.name + ".new")) } }
     fun remove(id: String) {
-        val model=requireNotNull(find(id))
-        if(model.artifacts.isNotEmpty()) {
-            bundleParts(model).forEach { (store,part) -> store.remove(part.id) }
-            val directory=File(root,id)
-            check(directory.canonicalFile.parentFile==root.canonicalFile)
-            check(!directory.exists() || directory.deleteRecursively()) { "Could not delete model runtime cache" }
-            clearRequest(id);listOf(".json", ".json.bak", ".json.new").forEach { removeFile(File(root,id+it)) };return
-        }
         clearPartial(id); clearRequest(id)
         removeFile(file(id)); removeFile(installedIdentity(id)); removeFile(File(root, installedIdentity(id).name + ".new"))
         listOf(".json", ".json.bak", ".json.new").forEach { removeFile(File(root, id + it)) }
@@ -81,7 +58,6 @@ class LocalModelStore(private val root: File, private val find: (String) -> Loca
         json.decodeFromString<PartialState>(stateFile(id).readText())
     }.getOrNull()
     fun preparePartial(model: LocalModelSpec): Long {
-        if(model.artifacts.isNotEmpty()) return bundleParts(model).sumOf { (store,part) -> if(store.installed(part)) part.bytes else store.preparePartial(part) }
         val target = partial(model.id)
         if (state(model.id)?.identity != identity(model) || target.length() > model.bytes) clearPartial(model.id)
         if (!stateFile(model.id).exists()) atomicWrite(stateFile(model.id), json.encodeToString(PartialState(identity(model))))
@@ -130,8 +106,7 @@ class LocalModelStore(private val root: File, private val find: (String) -> Loca
         val digest = MessageDigest.getInstance("SHA-256")
         target.inputStream().use { input ->
             val magic = ByteArray(4)
-            if (input.read(magic) != 4) throw ModelDownloadException("Model file is too short.")
-            if (model.format == "GGUF" && !magic.contentEquals(byteArrayOf(71,71,85,70))) throw ModelDownloadException("Not a GGUF model.")
+            if (input.read(magic) != 4 || !magic.contentEquals(byteArrayOf(71, 71, 85, 70))) throw ModelDownloadException("Not a GGUF model.")
             digest.update(magic)
             val buffer = ByteArray(1024 * 1024)
             while (true) {
